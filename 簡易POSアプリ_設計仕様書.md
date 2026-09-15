@@ -1,4 +1,4 @@
-# 簡易POSアプリ 設計仕様書（v1.6）
+# 簡易POSアプリ 設計仕様書（v1.7）
 
 対象範囲：`簡易POSアプリ_要件仕様書_ドラフト.md`（v1.10）で確定した要件を実現するための設計
 
@@ -109,7 +109,7 @@ erDiagram
         int staff_id PK "4桁固定 0001-9999 自動採番"
         string password_hash "argon2idでハッシュ化"
         string role "GENERAL または ADMIN"
-        boolean is_deleted "論理削除フラグ"
+        boolean is_active "true=有効、false=論理削除済み"
         datetime created_at
         datetime updated_at
     }
@@ -120,7 +120,7 @@ erDiagram
         string address
         enum gender "MALE/FEMALE/OTHER/NO_ANSWERの4択"
         int age
-        boolean is_deleted "論理削除フラグ"
+        boolean is_active "true=有効、false=論理削除済み"
         datetime created_at
         datetime updated_at
     }
@@ -128,13 +128,13 @@ erDiagram
         int menu_no PK "4桁固定 0001-9999 自動採番"
         string name
         int price "税込み単価(円)"
-        boolean is_deleted "論理削除フラグ"
+        boolean is_active "true=有効、false=論理削除済み"
         datetime created_at
         datetime updated_at
     }
     TAX_RATE {
         int id PK "自動採番。IDが最大(＝最後に登録された行)を現在の税率とみなす"
-        decimal rate "decimal(5,3) 例:0.100 = 10%"
+        int rate_percent "0〜100の整数。例:10 = 10%（小数不可）"
         datetime effective_from
     }
     TRANSACTION {
@@ -142,7 +142,7 @@ erDiagram
         datetime transacted_at
         int staff_id FK
         int member_id FK "NULL可(会員なし取引)"
-        decimal tax_rate_snapshot "確定時点の税率(値コピー)"
+        int tax_rate_percent_snapshot "確定時点の税率(0〜100の整数、値コピー)"
         bigint total_amount_with_tax "桁あふれ防止のためbigint(注記参照)"
         bigint total_amount_without_tax "桁あふれ防止のためbigint(注記参照)"
     }
@@ -162,8 +162,9 @@ erDiagram
 | ポイント | 設計内容 | 対応する要件 |
 |---|---|---|
 | メニュー単価の履歴保持 | `MENU.price`は最新値のみ保持。取引明細には`unit_price_snapshot`として確定時点の単価を複製保存する | 要件3.6節／決定事項No.12 |
-| 消費税率の履歴保持 | `TAX_RATE`は最新値の管理用。`TRANSACTION.tax_rate_snapshot`に確定時点の税率を値として複製保存する（FKではなく値コピー） | 要件3.6節／決定事項No.12 |
-| マスタの削除方式 | メニューだけでなく**担当者・会員も含めた全マスタで論理削除（`is_deleted`フラグ）を採用する**。物理削除にすると、既存の取引が参照している`staff_id`・`member_id`・`menu_no`のFK整合性が壊れ、「誰がレジ処理をしたか」「誰が購入したか」を後から追えなくなるため（要件3.6節）。一覧表示・POSメイン画面での検索では`is_deleted=false`のレコードのみを対象とする |
+| 消費税率の履歴保持 | `TAX_RATE`は最新値の管理用。`TRANSACTION.tax_rate_percent_snapshot`に確定時点の税率を値として複製保存する（FKではなく値コピー） | 要件3.6節／決定事項No.12 |
+| マスタの削除方式 | メニューだけでなく**担当者・会員も含めた全マスタで論理削除（`is_active`フラグ）を採用する**。物理削除にすると、既存の取引が参照している`staff_id`・`member_id`・`menu_no`のFK整合性が壊れ、「誰がレジ処理をしたか」「誰が購入したか」を後から追えなくなるため（要件3.6節）。一覧表示・POSメイン画面での検索では`is_active=true`のレコードのみを対象とする。フィールド名は`is_active`（真=有効）とする。要件仕様書3.8節・テスト仕様書とも`is_active`で記述されているため、本書側の呼称（旧`is_deleted`）を合わせた |
+| 論理削除レコードの復元 | `is_active`を`false`→`true`に戻すことで復元する（新しいテーブルや専用の復元エンドポイントは設けず、既存の更新系APIで`isActive`を指定する形とする）。マスタメンテナンス一覧では、既定では`is_active=true`のみ表示し、「削除済みを表示」トグルをオンにした場合のみ`is_active=false`のレコードも表示・復元操作可能にする | 要件3.8節・決定事項No.36 |
 | 会員なし取引 | `TRANSACTION.member_id`はNULL許容 | 要件3.2節 |
 | パスワード保管 | 平文保存せず、ハッシュ化した文字列のみ`password_hash`に保存（アルゴリズムの選定理由は5.1節参照） | 決定事項No.5 |
 | IDの不変性 | 担当者ID・会員ID・メニュー番号は自動採番後、変更不可とする。削除（論理削除）してもIDは再利用しない | 決定事項No.18 |
@@ -352,7 +353,7 @@ interface TransactionCreateRequest {
 | 項目 | 設計内容 |
 |---|---|
 | 投入手段 | アプリケーションのAPIやマスタメンテナンス画面は使わず、**DBマイグレーション（またはデプロイ時に一度だけ実行するシードスクリプト）で直接INSERTする** |
-| 投入するデータ | `staff_id = 0001`、`role = ADMIN`、`is_deleted = false`の担当者を1件登録する |
+| 投入するデータ | `staff_id = 0001`、`role = ADMIN`、`is_active = true`の担当者を1件登録する |
 | パスワードの扱い | 平文パスワードをコードやマイグレーションファイルに直書きしない。デプロイ時に環境変数（例：`INITIAL_ADMIN_PASSWORD`、Azure側はApp Service応用設定／Key Vaultで注入）として渡した値を、デプロイスクリプト内でargon2idハッシュ化してからINSERTする |
 | 初回ログイン後の運用 | 初期パスワードは初回ログイン後に管理者自身が`PUT /staff/0001`で変更することを運用上推奨する（要件上、複雑性要件・強制変更の仕組みは無いため、あくまで運用上の推奨に留める） |
 | 冪等性 | マイグレーションは「`staff_id = 0001`が存在しない場合のみ投入する」条件を持たせ、再実行してもエラーにならず、かつ既存データを上書きしないようにする |
@@ -378,7 +379,7 @@ interface TransactionCreateRequest {
 | メニュー単価（税込） | 整数（円） | 1 | 999,999 | 設計決定 |
 | 購入リストの数量（1メニューあたり） | 整数 | 1 | 99 | 要件（3.4.3節・決定事項No.16） |
 | 購入リストの行数（メニュー種類数） | 整数 | 1 | 50 | 設計決定（要件に規定なし。1リクエストが際限なく肥大化しないための上限） |
-| 消費税率 | 小数（decimal(5,3)、例:0.100） | 0.000 | 0.300 | 設計決定（初期値10%は要件・決定事項No.3） |
+| 消費税率 | 整数（%）。小数点以下は不可 | 0 | 100 | 要件（決定事項No.30・37）。初期値10%は決定事項No.3 |
 | JWTアクセストークン有効期限 | 分 | - | 30分 | 設計決定 |
 | 一覧取得API(`/members`, `/menus`, `/staff`)の`limit` | 整数 | 1 | 100（省略時デフォルト20） | 設計決定（無制限取得によるDB負荷を防ぐため上限を設ける） |
 
@@ -431,11 +432,12 @@ interface TransactionCreateRequest {
 
 ## 8. API一覧
 
-すべてブラウザ→Next.js（BFF）→FastAPIの経路で呼び出される。以下はFastAPI側のエンドポイント仕様（BFFは原則同一パス・同一形式で中継する）。
+すべてブラウザ→Next.js（BFF）→FastAPIの経路で呼び出される。以下はFastAPI側のエンドポイント仕様（BFFは原則同一パス・同一形式で中継する）。**以下のパスはすべて`/api`をベースパスとして付与する**（例：`/auth/login`は実際には`/api/auth/login`。テスト仕様書のテストケースはこのベースパス付きの表記で統一している）。
 
 - **購入リストの選択・削除・数量変更（要件3.4節）にはAPIを設けない。** これらの操作は購入確定前のカート状態であり、フロントエンド（ブラウザのメモリ/state）内で完結させ、「購入」ボタン押下時に初めて`POST /transactions`としてサーバーに送信する設計とする。
 - **バーコードで読み取った数字がメニュー番号（4桁）か会員ID（8桁）かの判別（要件3.3節）はフロントエンド側のロジックで行う。** 判別後、それぞれ`GET /menus/{menuNo}`・`GET /members/{memberId}`を呼び分ける。
-- 一覧取得系API（`GET /members`, `GET /menus`, `GET /staff`）は、論理削除済み（`is_deleted=true`）のレコードを結果に含めない。
+- 一覧取得系API（`GET /members`, `GET /menus`, `GET /staff`）は、既定では論理削除済み（`is_active=false`）のレコードを結果に含めない。クエリパラメータ`includeDeleted?: boolean`（既定`false`）を`true`にした場合のみ、論理削除済みレコードも含めて返す（マスタメンテナンス一覧の「削除済みを表示」トグルに対応。要件3.8節・決定事項No.36）。
+- 論理削除したレコードの**復元**は、専用エンドポイントを設けず、既存の更新系API（`PUT /members/{memberId}` 等）のリクエストボディに`isActive: true`を指定する形で行う。復元は破壊的操作ではないため確認ダイアログ不要（決定事項No.36）という要件どおり、APIとしても削除（`DELETE`）とは別の非破壊的な操作として扱う。
 - 会員IDが未入力（要件3.2節「会員なし」の正常取引）の場合は`GET /members/{memberId}`自体を呼び出さない。呼び出すのは会員IDが入力された場合のみであり、その場合に対象の会員が存在しなければ`MEMBER_NOT_FOUND`（404）を返す。
 - **数量上限（99個、決定事項No.16）のチェックは二重に行う。** ①カート構築中（スキャン／手入力での追加時）はAPIを呼ばないため、フロントエンドが即座にチェックしその場でユーザーに伝える。②`POST /transactions`側でも、改ざんされたリクエストに備えて`quantity`をPydanticの範囲制約（`ge=1, le=99`）で再検証する。②は単純な値範囲チェックのため、他の項目（氏名の文字数など）と同様に標準の`VALIDATION_ERROR`（422）として扱い、独立した業務エラーコードは設けない。
 
@@ -447,41 +449,43 @@ interface TransactionCreateRequest {
 | POST | `/auth/logout` | ログアウト | 必須 | なし | `204 No Content` |
 | GET | `/auth/me` | ログイン中の担当者情報取得 | 必須 | なし | `staffId: string`, `role: string` |
 
+論理削除済み（`is_active=false`）の担当者は、存在しない担当者IDと同様に扱い`AUTH_INVALID_CREDENTIALS`（401）を返す（パスワード誤りと区別しないのと同じ理由で、削除済みかどうかも外部に漏らさない）。
+
 ### 8.2 会員
 
 | Method | Path | 概要 | 認証 | 権限 | 入力 | 出力 |
 |---|---|---|---|---|---|---|
 | GET | `/members/{memberId}` | 会員照会（読み込み） | 必須 | 一般以上 | `memberId: string(8)`（パス） | `memberId: string` |
-| GET | `/members` | 会員一覧（マスタメンテ用） | 必須 | 管理者 | `offset?: int`, `limit?: int` | `members: Member[]` |
+| GET | `/members` | 会員一覧（マスタメンテ用） | 必須 | 管理者 | `offset?: int`, `limit?: int`, `includeDeleted?: boolean`（既定false） | `members: Member[]` |
 | POST | `/members` | 会員新規登録 | 必須 | 管理者 | `name: string`, `phone: string`, `address: string`, `gender: "MALE"\|"FEMALE"\|"OTHER"\|"NO_ANSWER"`, `age: int` | `memberId: string`（自動採番） |
-| PUT | `/members/{memberId}` | 会員更新 | 必須 | 管理者 | `name`, `phone`, `address`, `gender`, `age`（型は上記と同じ） | `204 No Content` |
-| DELETE | `/members/{memberId}` | 会員削除 | 必須 | 管理者 | なし | `204 No Content` |
+| PUT | `/members/{memberId}` | 会員更新・復元 | 必須 | 管理者 | `name?`, `phone?`, `address?`, `gender?`, `age?`, `isActive?: boolean`（`false`→`true`で復元。要件3.8節・決定事項No.36） | `204 No Content` |
+| DELETE | `/members/{memberId}` | 会員削除（論理削除。`isActive`を`false`にする） | 必須 | 管理者 | なし | `204 No Content` |
 
 ### 8.3 メニュー
 
 | Method | Path | 概要 | 認証 | 権限 | 入力 | 出力 |
 |---|---|---|---|---|---|---|
 | GET | `/menus/{menuNo}` | メニュー検索（手入力・スキャン共通） | 必須 | 一般以上 | `menuNo: string(4)`（パス） | `menuNo: string`, `name: string`, `price: int` |
-| GET | `/menus` | メニュー一覧（マスタメンテ用） | 必須 | 管理者 | `offset?: int`, `limit?: int` | `menus: Menu[]` |
+| GET | `/menus` | メニュー一覧（マスタメンテ用） | 必須 | 管理者 | `offset?: int`, `limit?: int`, `includeDeleted?: boolean`（既定false） | `menus: Menu[]` |
 | POST | `/menus` | メニュー新規登録 | 必須 | 管理者 | `name: string`, `price: int` | `menuNo: string`（自動採番） |
-| PUT | `/menus/{menuNo}` | メニュー更新 | 必須 | 管理者 | `name: string`, `price: int` | `204 No Content` |
-| DELETE | `/menus/{menuNo}` | メニュー削除（論理削除） | 必須 | 管理者 | なし | `204 No Content` |
+| PUT | `/menus/{menuNo}` | メニュー更新・復元 | 必須 | 管理者 | `name?: string`, `price?: int`, `isActive?: boolean`（`false`→`true`で復元。要件3.8節・決定事項No.36） | `204 No Content` |
+| DELETE | `/menus/{menuNo}` | メニュー削除（論理削除。`isActive`を`false`にする） | 必須 | 管理者 | なし | `204 No Content` |
 
 ### 8.4 担当者
 
 | Method | Path | 概要 | 認証 | 権限 | 入力 | 出力 |
 |---|---|---|---|---|---|---|
-| GET | `/staff` | 担当者一覧 | 必須 | 管理者 | `offset?: int`, `limit?: int` | `staff: Staff[]` |
+| GET | `/staff` | 担当者一覧 | 必須 | 管理者 | `offset?: int`, `limit?: int`, `includeDeleted?: boolean`（既定false） | `staff: Staff[]` |
 | POST | `/staff` | 担当者新規登録 | 必須 | 管理者 | `password: string`, `role: "GENERAL"\|"ADMIN"` | `staffId: string`（自動採番） |
-| PUT | `/staff/{staffId}` | 担当者更新（パスワード・権限変更） | 必須 | 管理者 | `password?: string`, `role?: string` | `204 No Content`（`LAST_ADMIN_PROTECTION`あり） |
-| DELETE | `/staff/{staffId}` | 担当者削除 | 必須 | 管理者 | なし | `204 No Content`（`LAST_ADMIN_PROTECTION`あり） |
+| PUT | `/staff/{staffId}` | 担当者更新（パスワード・権限変更・復元） | 必須 | 管理者 | `password?: string`, `role?: string`, `isActive?: boolean`（`false`→`true`で復元。要件3.8節・決定事項No.36） | `204 No Content`（`LAST_ADMIN_PROTECTION`あり） |
+| DELETE | `/staff/{staffId}` | 担当者削除（論理削除。`isActive`を`false`にする） | 必須 | 管理者 | なし | `204 No Content`（`LAST_ADMIN_PROTECTION`あり） |
 
 ### 8.5 消費税率
 
 | Method | Path | 概要 | 認証 | 権限 | 入力 | 出力 |
 |---|---|---|---|---|---|---|
-| GET | `/tax-rate` | 現在の消費税率取得（`id`最大の行を返す） | 必須 | 一般以上 | なし | `rate: number` |
-| POST | `/tax-rate` | 消費税率変更（新しい税率を新規行として登録し、以降はその行が「現在値」となる） | 必須 | 管理者 | `rate: number` | `201 Created` |
+| GET | `/tax-rate` | 現在の消費税率取得（`id`最大の行を返す） | 必須 | 一般以上 | なし | `ratePercent: int` |
+| POST | `/tax-rate` | 消費税率変更（新しい税率を新規行として登録し、以降はその行が「現在値」となる） | 必須 | 管理者 | `ratePercent: int`（0〜100の整数。範囲外・小数は`VALIDATION_ERROR`） | `201 Created` |
 
 > `TAX_RATE`はUPDATEせずINSERTのみで履歴を積み上げる設計（3章参照）のため、更新を意味する`PUT`ではなく新規作成を意味する`POST`とする。
 
@@ -491,6 +495,8 @@ interface TransactionCreateRequest {
 |---|---|---|---|---|---|---|
 | POST | `/transactions` | 購入確定（バックエンドで再計算・照合） | 必須 | 一般以上 | `memberId: string \| null`, `items: {menuNo: string, quantity: int}[]`, `frontendCalculated: {totalWithTax: int, totalWithoutTax: int}` | `transactionId: int`, `totalWithTax: int`, `totalWithoutTax: int` |
 | GET | `/transactions/{transactionId}` | 取引参照（監査・確認用） | 必須 | 管理者 | なし | `Transaction` |
+
+`POST /transactions`がDB保存失敗等で`INTERNAL_ERROR`（500）を返した場合、フロントエンドは購入リストの状態をクリアせず保持し、エラーポップアップを閉じた後に同じ内容で再度「購入」ボタンを押して再試行できるようにする（要件3.6節・決定事項No.29）。購入リストは元々「確定成功時のみクリアする」設計（4.2節）のため、エラー時に何もしなければ自然にこの挙動になる。
 
 ### 8.7 ヘルスチェック
 
@@ -537,3 +543,6 @@ Next.js（BFF）とFastAPIはAzure上で別々のサービスとしてホステ�
 | v1.17【要件仕様書との突合レビュー】 | 要件仕様書（v1.3）との整合性を全項目で再確認し、2件の不整合を修正。①エラーコード`QUANTITY_LIMIT_EXCEEDED`(409)が、実際にはどのAPIからも返される経路がなく（数量上限チェックは購入確定前のカート構築時にフロントエンドで完結するため）、かつ`POST /transactions`側の防御的な再検証は単純な範囲チェックのため本来`VALIDATION_ERROR`(422)であるべきという矛盾を解消：同エラーコードを廃止し、二重チェックの仕組みを8章に明記（7.2節・7.3節・8章を修正）。②フロントエンドとバックエンドが独立に金額を計算する設計（4.2節・5.4節）において、両者が要件3.7節の丸めルール（行ごとに四捨五入）を寸分違わず実装しないと、正しい金額でも`CALCULATION_MISMATCH`が誤発生するリスクを5.4節に明記 |
 | v1.18 | 要件仕様書3.8節「マスタの初期データはマスタメンテナンス画面経由（DB直接投入は前提としない）」と、5.8節の初期管理者DB直接投入方式との字面上の矛盾についてユーザーに確認し、「最初の1人の管理者に限りDB直接投入を例外的に認める」方針で合意。5.8節に要件仕様書3.8節との関係を説明する注記を追加するとともに、**要件仕様書側も3.8節・決定事項No.29・10章を更新（v1.3→v1.4）**し、両文書の内容を正式に一致させた |
 | v1.19 | `add-design-specification`・`update-requirements-r1`・`add-test-specification`の3ブランチをmainへマージする際、要件仕様書側で決定事項No.29が2系統（本書が追加した「初期管理者の作成方法」と、テスト仕様書レビュー分No.29〜37）で重複する競合が発生。「初期管理者の作成方法」をNo.38へ採番し直して解消したため、本書側の参照（5.8節・冒頭の要件仕様書バージョン表記）もNo.38・v1.10に追随して更新 |
+| v1.20【3文書突合レビュー1周目】 | 消費税率の範囲・粒度の不整合を修正：本書は`decimal(5,3)`で0.000〜0.300（0〜30%）としていたが、要件仕様書（決定事項No.30・37、テスト仕様書FT-057〜060・084で検証済み）は「0〜100%・整数のみ・小数不可」。`TAX_RATE.rate_percent`（整数）に変更し、ER図・6章の入力値一覧・8.5節のAPI入出力を修正 |
+| v1.21【3文書突合レビュー2周目】 | 論理削除フィールド名の不統一を解消：本書は`is_deleted`（真=削除済み）としていたが、要件仕様書3.8節・テスト仕様書はいずれも`is_active`（真=有効、決定事項No.36の復元機能とセット）で記述しており、本書側が孤立していた。`is_active`に統一（ER図・設計上のポイント表・5.8節）。あわせて、決定事項No.36「論理削除レコードの復元機能」「削除済み表示トグル」が本書のAPI一覧に一切反映されていなかった欠落を解消：一覧取得系APIに`includeDeleted`クエリパラメータを追加し、既存の更新系API（PUT）に`isActive`フィールドを追加することで復元を表現（専用の復元エンドポイントは設けない設計とし、テスト仕様書BE-037の想定と揃えた）。ログイン時、論理削除済み担当者はID不存在と同様の扱いとすることも明記 |
+| v1.22【3文書突合レビュー3周目】 | APIパスのベースパス（`/api`）がテスト仕様書の表記（`/api/auth/login`等）と本書（`/auth/login`等）で食い違っていたため、本書側がベースパス`/api`を前提としている旨を8章冒頭に明記。購入確定時のDB保存失敗（決定事項No.29）で購入リストを保持し再試行可能とする挙動を8.6節に明記（従来の設計でも成功時のみクリアするため自然に満たされるが、明文化）。テスト仕様書側の`PUT /api/tax-rate`という表記（BE-019, BE-021, BE-022, BE-038）が、本書がv1.12で確定した`POST /tax-rate`（INSERT-onlyの履歴設計に伴う変更）と食い違っていたため、テスト仕様書側を修正 |
