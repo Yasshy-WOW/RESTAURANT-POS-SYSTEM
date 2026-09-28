@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 
 import { AppHeader } from "@/components/AppHeader";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -27,6 +27,14 @@ function PosScreen() {
   const [menuError, setMenuError] = useState<string | null>(null);
 
   const [cart, setCart] = useState<CartItem[]>([]);
+  // handleBarcodeDetectはuseCallback([memberResolved])でメモ化されており、cart変更のたびには
+  // 作り直されない(BarcodeScanner側がonDetect変更のたびにカメラを再起動してしまうため)。
+  // そのためaddOrIncrementCart内でcart(state)を直接参照すると、スキャン連打時に古いcartの
+  // スナップショットを見てしまう。refで常に最新値を参照できるようにする。
+  const cartRef = useRef(cart);
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
   const [selectedMenuNo, setSelectedMenuNo] = useState<string | null>(null);
   const [quantityDraft, setQuantityDraft] = useState<string>("");
   const [cartError, setCartError] = useState<string | null>(null);
@@ -79,9 +87,10 @@ function PosScreen() {
 
   function addOrIncrementCart(menuNo: string, name: string, price: number): boolean {
     // setCartに渡す関数はReactの再レンダー時に実行されるため、その中で外側の変数(ok)に
-    // 代入して直後にreadしても反映されていない。呼び出し時点のcartスナップショットに対して
-    // 判定を確定させてからsetCartする(判定と戻り値を同期的に確定させるため)。
-    const result = addOrIncrementItem(cart, { menuNo, name, unitPrice: price });
+    // 代入して直後にreadしても反映されていない。cartRef(常に最新値)に対して判定を確定させて
+    // からsetCartする(判定と戻り値を同期的に確定させるため。かつhandleBarcodeDetect経由の
+    // 呼び出しでも古いcartスナップショットを見ないようにするため)。
+    const result = addOrIncrementItem(cartRef.current, { menuNo, name, unitPrice: price });
     if (!result.limitExceeded) {
       setCart(result.cart);
     }

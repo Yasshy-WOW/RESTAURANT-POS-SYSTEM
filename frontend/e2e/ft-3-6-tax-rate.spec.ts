@@ -1,15 +1,12 @@
 import { test, expect, Page } from "@playwright/test";
 
+import { requireEnv } from "./helpers";
+
 // テスト仕様書 3.6 マスタメンテナンス(消費税率関連: FT-056〜060, 084)
 // 消費税率はアプリ全体に影響するグローバル設定のため、各テスト終了時に必ず10%へ戻す。
 
 const ADMIN_STAFF_ID = "0001";
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD;
-if (!ADMIN_PASSWORD) {
-  throw new Error(
-    "環境変数E2E_ADMIN_PASSWORDを設定してください(backend/.envのINITIAL_ADMIN_PASSWORDと同じ値)。"
-  );
-}
+const ADMIN_PASSWORD = requireEnv("E2E_ADMIN_PASSWORD");
 
 async function login(page: Page, staffId: string, password: string) {
   await page.goto("/login");

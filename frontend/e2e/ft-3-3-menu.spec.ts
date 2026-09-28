@@ -1,16 +1,13 @@
 import { test, expect, Page } from "@playwright/test";
 
+import { requireEnv } from "./helpers";
+
 // テスト仕様書 3.3 メニュー登録(手入力・バーコード)(FT-020〜FT-027)
 // カメラを使うFT-022・FT-023・FT-027はヘッドレスブラウザで実カメラを再現できないため、本ファイルでは対象外
 // (別途、擬似カメラ映像を用いた検証方針を協議する)。
 
 const ADMIN_STAFF_ID = "0001";
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD;
-if (!ADMIN_PASSWORD) {
-  throw new Error(
-    "環境変数E2E_ADMIN_PASSWORDを設定してください(backend/.envのINITIAL_ADMIN_PASSWORDと同じ値)。"
-  );
-}
+const ADMIN_PASSWORD = requireEnv("E2E_ADMIN_PASSWORD");
 
 async function login(page: Page, staffId: string, password: string) {
   await page.goto("/login");

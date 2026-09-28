@@ -1,14 +1,11 @@
 import { test, expect, Page } from "@playwright/test";
 
+import { requireEnv } from "./helpers";
+
 // テスト仕様書 3.5 購入確定・消費税計算(FT-040〜FT-048)
 
 const ADMIN_STAFF_ID = "0001";
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD;
-if (!ADMIN_PASSWORD) {
-  throw new Error(
-    "環境変数E2E_ADMIN_PASSWORDを設定してください(backend/.envのINITIAL_ADMIN_PASSWORDと同じ値)。"
-  );
-}
+const ADMIN_PASSWORD = requireEnv("E2E_ADMIN_PASSWORD");
 
 async function login(page: Page, staffId: string, password: string) {
   await page.goto("/login");
