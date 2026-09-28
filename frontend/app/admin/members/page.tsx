@@ -41,7 +41,7 @@ function MemberAdminScreen() {
 
   const load = useCallback(() => {
     apiClient
-      .get<{ members: Member[] }>(`/api/members?includeDeleted=${includeDeleted}`)
+      .get<{ members: Member[] }>(`/api/members?includeDeleted=${includeDeleted}&limit=100`)
       .then((res) => setMembers(res.members))
       .catch((e) => setError(e instanceof ApiError ? e.message : "一覧の取得に失敗しました。"));
   }, [includeDeleted]);

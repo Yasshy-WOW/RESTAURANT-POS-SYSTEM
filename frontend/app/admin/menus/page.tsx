@@ -26,7 +26,7 @@ function MenuAdminScreen() {
 
   const load = useCallback(() => {
     apiClient
-      .get<{ menus: Menu[] }>(`/api/menus?includeDeleted=${includeDeleted}`)
+      .get<{ menus: Menu[] }>(`/api/menus?includeDeleted=${includeDeleted}&limit=100`)
       .then((res) => setMenus(res.menus))
       .catch((e) => setError(e instanceof ApiError ? e.message : "一覧の取得に失敗しました。"));
   }, [includeDeleted]);

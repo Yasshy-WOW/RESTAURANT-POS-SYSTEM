@@ -26,7 +26,7 @@ function StaffAdminScreen() {
 
   const load = useCallback(() => {
     apiClient
-      .get<{ staff: Staff[] }>(`/api/staff?includeDeleted=${includeDeleted}`)
+      .get<{ staff: Staff[] }>(`/api/staff?includeDeleted=${includeDeleted}&limit=100`)
       .then((res) => setStaffList(res.staff))
       .catch((e) => setError(e instanceof ApiError ? e.message : "一覧の取得に失敗しました。"));
   }, [includeDeleted]);

@@ -78,13 +78,14 @@ function PosScreen() {
   }
 
   function addOrIncrementCart(menuNo: string, name: string, price: number): boolean {
-    let ok = true;
-    setCart((prev) => {
-      const result = addOrIncrementItem(prev, { menuNo, name, unitPrice: price });
-      ok = !result.limitExceeded;
-      return result.cart;
-    });
-    return ok;
+    // setCartに渡す関数はReactの再レンダー時に実行されるため、その中で外側の変数(ok)に
+    // 代入して直後にreadしても反映されていない。呼び出し時点のcartスナップショットに対して
+    // 判定を確定させてからsetCartする(判定と戻り値を同期的に確定させるため)。
+    const result = addOrIncrementItem(cart, { menuNo, name, unitPrice: price });
+    if (!result.limitExceeded) {
+      setCart(result.cart);
+    }
+    return !result.limitExceeded;
   }
 
   async function handleLookupMenu(rawMenuNo: string) {
