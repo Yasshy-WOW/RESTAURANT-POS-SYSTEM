@@ -21,8 +21,9 @@ frontend/  Next.js (TypeScript / npm) - 画面・BFF(リバースプロキシ)
 - [Poetry](https://python-poetry.org/)
 - Node.js 20 系 / npm
 
-ローカル開発ではDBに**SQLite**を使用します(本番はAzure Database for MySQL Flexible Serverを想定)。
-SQLAlchemyの汎用型のみを使用しているため、`DATABASE_URL`を書き換えるだけで本番のMySQLへ切り替えられます。
+DBには**Azure Database for MySQL Flexible Server**を使用します(要件仕様書2章・設計仕様書2.1節)。
+ローカル開発・本番ともに同じMySQLサーバーへ接続するため、`backend/.env`の`DATABASE_URL`に
+実際の接続情報(ホスト・ユーザー・パスワード・DB名)を設定してください。
 
 ## セットアップ
 
@@ -32,9 +33,9 @@ SQLAlchemyの汎用型のみを使用しているため、`DATABASE_URL`を書�
 cd backend
 poetry install
 
-cp .env.example .env   # 必要に応じて値を編集
+cp .env.example .env   # DATABASE_URLを実際のMySQL接続情報に編集する
 
-# DBスキーマを作成
+# DBスキーマを作成(接続先のMySQLサーバーに対してマイグレーションを実行)
 poetry run alembic upgrade head
 
 # 初期管理者(staff_id=0001)と初期消費税率(10%)を投入する(設計仕様書5.8節・決定事項No.38)
@@ -46,7 +47,7 @@ INITIAL_ADMIN_PASSWORD=<任意の初期パスワード> poetry run python script
 poetry run uvicorn app.main:app --reload
 ```
 
-テスト実行:
+テスト実行(インメモリSQLiteを使用するため、MySQLサーバーへの接続は不要):
 
 ```bash
 poetry run pytest --cov=app --cov-report=term-missing
@@ -84,7 +85,7 @@ npm run test:coverage
 | ファイル | 変数 | 説明 |
 |---|---|---|
 | `backend/.env` | `ENV` | `local`の時のみSwagger/ReDocを公開(設計5.5節) |
-| `backend/.env` | `DATABASE_URL` | DB接続文字列(開発: SQLite、本番: Azure MySQL) |
+| `backend/.env` | `DATABASE_URL` | DB接続文字列(Azure Database for MySQL Flexible Server) |
 | `backend/.env` | `JWT_SECRET_KEY` | JWT署名鍵。本番は必ず変更する |
 | `backend/.env` | `JWT_EXPIRE_MINUTES` | JWT有効期限(既定30分。設計5.1節) |
 | `backend/.env` | `CORS_ALLOW_ORIGINS` | 許可するBFFのオリジン一覧 |
